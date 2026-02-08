@@ -1,6 +1,6 @@
 # ChoreOS Bot 🧹
 
-A Telegram bot for household chore tracking, built with Google Apps Script and powered by Google Sheets.
+A Telegram bot for household chore tracking. Google Apps Script runtime with Google Sheets as database. Pipedream proxy for webhook reliability.
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -20,9 +20,36 @@ A Telegram bot for household chore tracking, built with Google Apps Script and p
 /status → Displays current status of all chores
 
 ## Architecture
-Telegram Bot → Pipedream Proxy → Google Apps Script → Google Sheets
 
-**Why Pipedream?** Google Apps Script returns 302 redirects that Telegram's webhook client doesn't follow. Pipedream acts as a proxy that returns immediate 200 OK responses while forwarding requests to Apps Script.
+ChoreOS Bot uses a serverless architecture with bidirectional data flow:
+```
+User ←→ Telegram ←→ Pipedream ←→ Apps Script ←→ Google Sheets
+                    (Proxy)        (Runtime)      (Database)
+```
+
+**Data Flow:**
+1. **User → Telegram → Pipedream → Apps Script**  
+   User sends command (`/log`, `/status`)
+
+2. **Apps Script → Sheets (READ)**  
+   Read Master sheet to get chore list or status
+
+3. **Apps Script → Telegram → User**  
+   Send response (buttons or status report)
+
+4. **User → Telegram → Pipedream → Apps Script**  
+   User clicks button
+
+5. **Apps Script → Sheets (WRITE)**  
+   Append to Log sheet
+
+6. **Sheets (Formula Calculation)**  
+   Master sheet formulas automatically read Log sheet to update "Last Done"
+
+7. **Next /status → Apps Script → Sheets (READ)**  
+   Read updated Master sheet status
+
+**Why Pipedream?** Apps Script returns 302 redirects that Telegram's webhook client won't follow. Pipedream returns immediate 200 OK while forwarding in the background.
 
 ## Prerequisites
 
