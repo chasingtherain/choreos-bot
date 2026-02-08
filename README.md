@@ -73,9 +73,9 @@ const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
 const WEB_APP_URL = 'YOUR_PIPEDREAM_URL_HERE';
 
 ## Google Sheets Formulas
-### Last Done (Column C)=IFERROR(MAX(FILTER(Log!A:A,Log!B:B=A2)),"")
-### Next Due (Column D)=IF(C2="","Never",C2+B2)
-### Status (Column E)=IF(C2="","❌ Never",IF(D2<TODAY(),"⚠️ OVERDUE","✅ OK"))
+Last Done (Column C)=IFERROR(MAX(FILTER(Log!A:A,Log!B:B=A2)),"")
+Next Due (Column D)=IF(C2="","Never",C2+B2)
+Status (Column E)=IF(C2="","❌ Never",IF(D2<TODAY(),"⚠️ OVERDUE","✅ OK"))
 
 ## Project Structuresrc/Code.gs → Main bot code
 config/               → Configuration files
