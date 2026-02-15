@@ -172,47 +172,113 @@ function showChoreStatus(chatId) {
   try {
     const ss = getSpreadsheet();
     const masterSheet = ss.getSheetByName('Master');
-    
+
     if (!masterSheet) {
       sendMessage(chatId, '❌ Master sheet not found.');
       return;
     }
-    
+
     const data = masterSheet.getDataRange().getValues();
-    let report = '📊 Chore Status Report\n\n';
-    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const overdue = [];
+    const onTrack = [];
+
     // Skip header row
     for (let i = 1; i < data.length; i++) {
       const choreName = data[i][0]; // Column A
-      const status = data[i][4];     // Column E
-      
+      const lastDoneRaw = data[i][2]; // Column C
+      const nextDueRaw = data[i][3]; // Column D
+      const status = data[i][4]; // Column E
+
       if (!choreName || choreName.toString().trim() === '') continue;
-      
-      // Determine emoji based on status
-      let emoji = '❓';
-      if (status) {
-        const statusStr = status.toString().toUpperCase();
-        if (statusStr.includes('OK')) {
-          emoji = '✅';
-        } else if (statusStr.includes('OVERDUE') || statusStr.includes('NEVER')) {
-          emoji = '⚠️';
-        }
+
+      // Parse last done date
+      let lastDoneStr = 'never done';
+      if (lastDoneRaw instanceof Date) {
+        lastDoneStr = 'done ' + formatShortDate(lastDoneRaw);
+      } else if (lastDoneRaw && typeof lastDoneRaw === 'number') {
+        lastDoneStr = 'done ' + formatShortDate(new Date((lastDoneRaw - 25569) * 86400000));
       }
-      
-      report += emoji + ' ' + choreName + ': ' + (status || 'Unknown') + '\n';
+
+      // Parse next due and calculate days
+      let daysUntilDue = null;
+      if (nextDueRaw instanceof Date) {
+        const d = new Date(nextDueRaw);
+        d.setHours(0, 0, 0, 0);
+        daysUntilDue = Math.ceil((d - today) / 86400000);
+      } else if (nextDueRaw && typeof nextDueRaw === 'number') {
+        const d = new Date((nextDueRaw - 25569) * 86400000);
+        d.setHours(0, 0, 0, 0);
+        daysUntilDue = Math.ceil((d - today) / 86400000);
+      }
+
+      const statusStr = status ? status.toString().toUpperCase() : '';
+      const isOverdue = statusStr.includes('OVERDUE') || statusStr.includes('NEVER');
+      const chore = { name: choreName, lastDoneStr: lastDoneStr, daysUntilDue: daysUntilDue };
+
+      if (isOverdue) {
+        overdue.push(chore);
+      } else {
+        onTrack.push(chore);
+      }
     }
-    
-    if (report === '📊 Chore Status Report\n\n') {
+
+    const total = overdue.length + onTrack.length;
+    if (total === 0) {
       sendMessage(chatId, '❌ No chores found.');
       return;
     }
-    
+
+    // Sort: overdue by most overdue first, on-track by soonest due first
+    overdue.sort(function(a, b) { return (a.daysUntilDue || -9999) - (b.daysUntilDue || -9999); });
+    onTrack.sort(function(a, b) { return (a.daysUntilDue || 9999) - (b.daysUntilDue || 9999); });
+
+    // Build report
+    let report = '📊 Chore Status — ' + onTrack.length + '/' + total + ' on track\n';
+
+    if (overdue.length > 0) {
+      report += '\n⚠️ OVERDUE:\n';
+      for (let j = 0; j < overdue.length; j++) {
+        const c = overdue[j];
+        let dueText = 'overdue';
+        if (c.daysUntilDue !== null && c.daysUntilDue < 0) {
+          dueText = Math.abs(c.daysUntilDue) + ' days overdue';
+        }
+        report += '🔴 ' + c.name + ' — ' + c.lastDoneStr + ', ' + dueText + '\n';
+      }
+    }
+
+    if (onTrack.length > 0) {
+      report += '\n✅ UP TO DATE:\n';
+      for (let k = 0; k < onTrack.length; k++) {
+        const c = onTrack[k];
+        let dueText = '';
+        if (c.daysUntilDue !== null) {
+          dueText = 'due in ' + c.daysUntilDue + ' day' + (c.daysUntilDue === 1 ? '' : 's');
+        }
+        report += '  ' + c.name + ' — ' + c.lastDoneStr + (dueText ? ', ' + dueText : '') + '\n';
+      }
+    }
+
     sendMessage(chatId, report);
-    
+
   } catch (error) {
     Logger.log('Error in showChoreStatus: ' + error);
     sendMessage(chatId, '❌ Error loading status.');
   }
+}
+
+function formatShortDate(date) {
+  var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var now = new Date();
+  var str = months[date.getMonth()] + ' ' + date.getDate();
+  if (date.getFullYear() !== now.getFullYear()) {
+    str += " '" + String(date.getFullYear()).slice(2);
+  }
+  return str;
 }
 
 // ============================================================================
