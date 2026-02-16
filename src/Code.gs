@@ -244,7 +244,7 @@ function showChoreStatus(chatId) {
         const c = overdue[j];
         let dueText = 'overdue';
         if (c.daysUntilDue !== null && c.daysUntilDue < 0) {
-          dueText = Math.abs(c.daysUntilDue) + ' days overdue';
+          dueText = Math.abs(c.daysUntilDue) + (Math.abs(c.daysUntilDue) === 1 ? ' day overdue' : ' days overdue');
         }
         report += '🔴 ' + c.name + ' — ' + c.lastDoneStr + ', ' + dueText + '\n';
       }
