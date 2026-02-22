@@ -4,8 +4,10 @@
 const BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE';
 const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
 const WEB_APP_URL = 'YOUR_PIPEDREAM_URL_HERE';
+const CHAT_ID = 'YOUR_CHAT_ID_HERE'; // Chat ID to receive scheduled status reports
 const TELEGRAM_API = 'https://api.telegram.org/bot' + BOT_TOKEN;
-const BUTTON_EXPIRY_MINUTES = 60; // Buttons expire after 1 hour
+const BUTTON_EXPIRY_MINUTES = 5; // Buttons expire after 5 minutes
+const STATUS_TRIGGER_FUNCTION = 'sendScheduledStatus';
 
 // ============================================================================
 // SPREADSHEET CACHING (Performance Optimization)
@@ -448,6 +450,47 @@ function answerCallback(callbackQueryId, text) {
 // For browser testing
 function doGet() {
   return ContentService.createTextOutput('Bot is alive! Deployment works correctly.');
+}
+
+// ============================================================================
+// SCHEDULED STATUS - Auto-send /status every 2 days
+// ============================================================================
+function sendScheduledStatus() {
+  if (!CHAT_ID || CHAT_ID === 'YOUR_CHAT_ID_HERE') {
+    Logger.log('❌ CHAT_ID not set. Update the CHAT_ID constant and re-run setupStatusTrigger.');
+    return;
+  }
+  showChoreStatus(CHAT_ID);
+}
+
+// Run once to create the trigger. Skips if one already exists.
+function setupStatusTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === STATUS_TRIGGER_FUNCTION) {
+      Logger.log('ℹ️ Trigger already exists — no duplicate created.');
+      return;
+    }
+  }
+  ScriptApp.newTrigger(STATUS_TRIGGER_FUNCTION)
+    .timeBased()
+    .everyDays(2)
+    .atHour(9) // Fires at ~9 AM in the script's timezone
+    .create();
+  Logger.log('✅ Status trigger created — will run every 2 days at 9 AM.');
+}
+
+// Run to remove the scheduled trigger.
+function deleteStatusTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let deleted = 0;
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === STATUS_TRIGGER_FUNCTION) {
+      ScriptApp.deleteTrigger(triggers[i]);
+      deleted++;
+    }
+  }
+  Logger.log(deleted > 0 ? '✅ Status trigger deleted.' : 'ℹ️ No trigger found to delete.');
 }
 
 // ============================================================================

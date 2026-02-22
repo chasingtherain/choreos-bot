@@ -13,5 +13,9 @@ const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
 // Your Pipedream workflow URL
 const WEB_APP_URL = 'https://YOUR_PIPEDREAM_URL.m.pipedream.net';
 
+// Chat ID to receive automatic scheduled status reports
+// Find yours by messaging @userinfobot on Telegram
+const CHAT_ID = 'YOUR_CHAT_ID_HERE';
+
 // Button expiration time in minutes (default: 60)
 const BUTTON_EXPIRY_MINUTES = 60;
