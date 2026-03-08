@@ -3,10 +3,9 @@
 // ============================================================================
 const BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE';
 const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
-const WEB_APP_URL = 'YOUR_PIPEDREAM_URL_HERE';
-const CHAT_ID = 'YOUR_CHAT_ID_HERE'; // Chat ID to receive scheduled status reports
+const WEB_APP_URL = 'YOUR_WEB_APP_URL_HERE';
+const CHAT_ID = 'YOUR_CHAT_ID_HERE'; 
 const TELEGRAM_API = 'https://api.telegram.org/bot' + BOT_TOKEN;
-const BUTTON_EXPIRY_MINUTES = 5; // Buttons expire after 5 minutes
 const STATUS_TRIGGER_FUNCTION = 'sendScheduledStatus';
 const OVERDUE_TRIGGER_FUNCTION = 'sendOverdueAlert';
 
@@ -87,7 +86,7 @@ function generateChoreButtons(userName, selectedIds = "") {
     
     let newSelection = isSelected 
       ? selectedArray.filter(id => id !== rowId).join(',') 
-      : selectedArray.concat(rowId).join(',');
+      : (selectedArray.length > 0 ? selectedArray.join(',') + ',' + rowId : rowId);
 
     let label = (isSelected ? "✅ " : "") + choreName;
     if (choreName in overdueMap && !isSelected) {
@@ -112,7 +111,7 @@ function generateChoreButtons(userName, selectedIds = "") {
 }
 
 // ============================================================================
-// BUTTON CLICK HANDLER
+// BUTTON CLICK HANDLER (INCLUDES POST-LOG SUMMARY)
 // ============================================================================
 function handleButtonClick(callbackQuery) {
   const chatId = callbackQuery.message.chat.id;
@@ -123,31 +122,46 @@ function handleButtonClick(callbackQuery) {
   if (action === 'cancel') {
     editMessage(chatId, messageId, '❌ Cancelled');
     answerCallback(callbackQuery.id);
-  } 
-  else if (action === 'toggle') {
+    return;
+  }
+
+  if (action === 'toggle') {
     const selectedIds = parts[1] || "";
     const userName = parts[2];
     const newButtons = generateChoreButtons(userName, selectedIds);
     editMessageWithButtons(chatId, messageId, '📝 Select chores to log:', newButtons);
     answerCallback(callbackQuery.id);
   } 
+  
   else if (action === 'bulk') {
     const ids = parts[1].split(',');
     const userName = parts[2];
     const chores = getChoreList(); 
     
     ids.forEach(id => {
-      const name = chores[parseInt(id) - 2];
-      logChore(name, userName);
+      const rowIndex = parseInt(id) - 2;
+      if (chores[rowIndex]) logChore(chores[rowIndex], userName);
     });
 
     editMessage(chatId, messageId, '✅ Logged ' + ids.length + ' chore(s) successfully!');
     answerCallback(callbackQuery.id, 'Logged!');
+
+    // Restore the "Still Overdue" alert logic
+    Utilities.sleep(1000); // Give Sheet time to recalculate
+    const stillOverdue = getOverdueChores();
+    if (stillOverdue.length > 0) {
+      let warning = '⚠️ ' + stillOverdue.length + ' other chore' + (stillOverdue.length === 1 ? '' : 's') + ' still overdue:\n';
+      stillOverdue.forEach(c => {
+        let dueText = c.daysOverdue === 0 ? 'due today' : c.daysOverdue + 'd overdue';
+        warning += '🔴 ' + c.name + ' — ' + dueText + '\n';
+      });
+      sendMessage(chatId, warning);
+    }
   }
 }
 
 // ============================================================================
-// STATUS REPORT (FIXED 0-DAY ISSUE)
+// STATUS REPORT (FIXED DATE PARSING & 0-DAY ISSUE)
 // ============================================================================
 function showChoreStatus(chatId) {
   try {
@@ -162,15 +176,24 @@ function showChoreStatus(chatId) {
 
     for (let i = 1; i < data.length; i++) {
       const choreName = data[i][0];
-      const lastDoneRaw = data[i][2];
-      const nextDueRaw = data[i][3];
+      const lastDoneRaw = data[i][2]; // Column C
+      const nextDueRaw = data[i][3];  // Column D
       const status = data[i][4] ? data[i][4].toString().toUpperCase() : '';
 
       if (!choreName || choreName.toString().trim() === '') continue;
 
-      let lastDoneStr = lastDoneRaw instanceof Date ? 'done ' + formatShortDate(lastDoneRaw) : 'never done';
+      // Robust parsing for Last Done
+      let lastDoneDate = null;
+      if (lastDoneRaw instanceof Date) lastDoneDate = lastDoneRaw;
+      else if (typeof lastDoneRaw === 'number' && lastDoneRaw > 0) lastDoneDate = new Date((lastDoneRaw - 25569) * 86400000);
       
-      let nextDue = nextDueRaw instanceof Date ? new Date(nextDueRaw) : (typeof nextDueRaw === 'number' ? new Date((nextDueRaw - 25569) * 86400000) : null);
+      let lastDoneStr = lastDoneDate ? 'done ' + formatShortDate(lastDoneDate) : 'never done';
+      
+      // Robust parsing for Next Due
+      let nextDue = null;
+      if (nextDueRaw instanceof Date) nextDue = new Date(nextDueRaw);
+      else if (typeof nextDueRaw === 'number' && nextDueRaw > 0) nextDue = new Date((nextDueRaw - 25569) * 86400000);
+      
       if (nextDue) nextDue.setHours(0,0,0,0);
 
       const daysUntilDue = nextDue ? Math.ceil((nextDue - today) / 86400000) : null;
@@ -180,17 +203,12 @@ function showChoreStatus(chatId) {
       if (isOverdue) overdue.push(chore); else onTrack.push(chore);
     }
 
-    let report = '📊 Chore Status\n';
+    let report = '📊 Chore Status — ' + onTrack.length + '/' + (overdue.length + onTrack.length) + ' on track\n';
 
     if (overdue.length > 0) {
       report += '\n⚠️ OVERDUE:\n';
       overdue.sort((a,b) => (a.daysUntilDue || 0) - (b.daysUntilDue || 0)).forEach(c => {
-        let dueText = 'overdue';
-        if (c.daysUntilDue === 0) dueText = 'DUE TODAY 🔔';
-        else if (c.daysUntilDue < 0) {
-          const d = Math.abs(c.daysUntilDue);
-          dueText = d + (d === 1 ? ' day overdue' : ' days overdue');
-        }
+        let dueText = c.daysUntilDue === 0 ? 'DUE TODAY 🔔' : (c.daysUntilDue < 0 ? Math.abs(c.daysUntilDue) + 'd overdue' : 'overdue');
         report += '🔴 ' + c.name + ' — ' + c.lastDoneStr + ', ' + dueText + '\n';
       });
     }
@@ -198,7 +216,7 @@ function showChoreStatus(chatId) {
     if (onTrack.length > 0) {
       report += '\n✅ UP TO DATE:\n';
       onTrack.sort((a,b) => (a.daysUntilDue || 0) - (b.daysUntilDue || 0)).forEach(c => {
-        let dueText = c.daysUntilDue === 1 ? 'due tomorrow' : 'due in ' + c.daysUntilDue + ' days';
+        let dueText = c.daysUntilDue === 0 ? 'due TODAY 🔔' : (c.daysUntilDue === 1 ? 'due tomorrow' : 'due in ' + c.daysUntilDue + ' days');
         report += '  ' + c.name + ' — ' + c.lastDoneStr + ', ' + dueText + '\n';
       });
     }
@@ -212,22 +230,31 @@ function showChoreStatus(chatId) {
 // ============================================================================
 function formatShortDate(date) {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return months[date.getMonth()] + ' ' + date.getDate() + (date.getFullYear() !== new Date().getFullYear() ? " '" + String(date.getFullYear()).slice(2) : "");
+  const now = new Date();
+  let str = months[date.getMonth()] + ' ' + date.getDate();
+  if (date.getFullYear() !== now.getFullYear()) str += " '" + String(date.getFullYear()).slice(2);
+  return str;
 }
 
 function getChoreList() {
-  const data = getSpreadsheet().getSheetByName('Master').getDataRange().getValues();
+  const sheet = getSpreadsheet().getSheetByName('Master');
+  const data = sheet.getDataRange().getValues();
   return data.slice(1).map(r => r[0].toString().trim()).filter(n => n !== "");
 }
 
 function getOverdueChores() {
-  const data = getSpreadsheet().getSheetByName('Master').getDataRange().getValues();
+  const sheet = getSpreadsheet().getSheetByName('Master');
+  const data = sheet.getDataRange().getValues();
   const today = new Date(); today.setHours(0,0,0,0);
   const overdue = [];
   for (let i = 1; i < data.length; i++) {
     const status = data[i][4] ? data[i][4].toString().toUpperCase() : '';
     if (status.includes('OVERDUE') || status.includes('NEVER')) {
-      let nextDue = data[i][3] instanceof Date ? new Date(data[i][3]) : null;
+      const raw = data[i][3];
+      let nextDue = null;
+      if (raw instanceof Date) nextDue = new Date(raw);
+      else if (typeof raw === 'number' && raw > 0) nextDue = new Date((raw - 25569) * 86400000);
+      
       if (nextDue) nextDue.setHours(0,0,0,0);
       const days = nextDue ? Math.ceil((today - nextDue) / 86400000) : 0;
       overdue.push({ name: data[i][0], daysOverdue: days });
